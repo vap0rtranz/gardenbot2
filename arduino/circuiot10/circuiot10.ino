@@ -30,7 +30,7 @@ void loop()                     // run over and over again
  temperature = (temperature - .5) * 100;          //converting from 10 mv per degree wit 500 mV offset
                                                   //to degrees ((volatge - 500mV) times 100)
  Serial.println(temperature);                     //printing the result
- delay(1000);                                     //waiting a second
+ delay(5000);                                     //waiting a second
 }
 
 /*
