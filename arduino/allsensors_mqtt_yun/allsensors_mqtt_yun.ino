@@ -1,19 +1,13 @@
 /***************************************************
-  Adafruit MQTT Library Arduino Yun Example
+  Adafruit MQTT Mockup for Publishing Arduino Yun readings
 
-  Make sure your Arduino Yun is connected to a WiFi access point which
-  has internet access.  Also note this sketch uses the Console class
-  for debug output so make sure to connect to the Yun over WiFi and
-  open the serial monitor to see the console output.
-
-  Works great with the Arduino Yun:
-  ----> https://www.adafruit.com/products/1498
-
-  Adafruit invests time and resources providing this open source code,
-  please support Adafruit and open-source hardware by purchasing
-  products from Adafruit!
+  Arduino Yun must be connected to public WiFi
+  uses the Console class for debug output (you can connect over Wifi)
 
   Written by Tony DiCola for Adafruit Industries.
+  Revised by Justin Pittman for Gardenbo2 project:
+  https://www.hackster.io/gardnergeeks/gardenbot2-2efcde
+  
   MIT license, all text above must be included in any redistribution
  ****************************************************/
 #include <Bridge.h>
@@ -55,17 +49,17 @@ void setup() {
   // for debugging
   Console.begin();
   Console.println(F("Bridge begun."));
+  digitalWrite(13, LOW);
 }
 
 float tempCel = 0;
-int lightRelativeLUX = 0;
+float lightRelativeLUX = 0;
 int tempPin = 0;
 int lightPin = 1;
 
 void loop() {
-  // Ensure the connection to the MQTT server is alive (this will make the first
-  // connection and automatically reconnect when disconnected).  See the MQTT_connect
-  // function definition further below.
+  // make the first MQTT connection and automatically reconnect when disconnected
+  // See the MQTT_connect below
   MQTT_connect();
   Console.println(F("Connected to MQTT server"));
   
@@ -77,16 +71,26 @@ void loop() {
   tempCel = tempCel / 9.31;
   
   // Publish the readings
-  Temperature.publish(tempCel);
-  Console.println(F("Published to feed."));
-  Console.print("Temp:"); //Display the temperature on Serial monitor
-  Console.println(tempCel);
-  //LightSensor.publish(lightRelativeLUX);
-  //
-  //  Console.println(F("Failed"));
-  //} else {
-  //  Console.println(F("OK!"));
-  //}
+  if (! Temperature.publish(tempCel) ) {
+    Console.println(F("Publish Failed"));
+    Console.print(":C:"); //Display the temperature on Serial monitor
+    Console.println(tempCel);
+    } else { 
+      Console.println(F("OK!")); 
+      digitalWrite(13, HIGH);
+      delay(1000);
+      digitalWrite(13, LOW);
+    }
+  if (! LightSensor.publish(lightRelativeLUX) ) {
+    Console.println(F("Publish Failed"));
+    Console.print(":LUX:"); //Display the temperature on Serial monitor
+    Console.println(lightRelativeLUX);
+    } else { 
+      Console.println(F("OK!"));
+      digitalWrite(13, HIGH);
+      delay(1000);
+      digitalWrite(13, LOW);
+      } 
 
   // ping the server to keep the mqtt connection alive
   if(! mqtt.ping()) {
@@ -113,8 +117,10 @@ void MQTT_connect() {
   while ((ret = mqtt.connect()) != 0) { // connect will return 0 for connected
        Console.print(mqtt.connectErrorString(ret));
        Console.print("... Retrying MQTT connection in 5 seconds...");
-       mqtt.disconnect();
-       delay(5000);  // wait 5 seconds
+        mqtt.disconnect();
+        digitalWrite(13, HIGH);
+        delay(5000);  // wait 5 seconds
+        digitalWrite(13, LOW);
   }
   Console.println("MQTT Re-connected!");
 }
