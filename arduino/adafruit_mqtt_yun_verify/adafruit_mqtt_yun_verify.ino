@@ -23,16 +23,23 @@
 #define AIO_USERNAME    "vap0rtranz"
 #define AIO_KEY         "3f445b514597440ab7ed8a15096938f7"
 
-/************ Global State (you don't need to change this!) ******************/
+/************ MQTT Global State (you don't need to change this!) ******************/
 
 // Create a BridgeClient instance to communicate using the Yun's bridge & Linux OS.
 BridgeClient client;
 // Setup the MQTT client class by passing in the WiFi client and MQTT server and login details.
 Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO_KEY);
 
+/*************************** MQTT Error Reporting *********************************/
+
+const char ERRORS[] PROGMEM = AIO_USERNAME "/errors";
+Adafruit_MQTT_Subscribe errors = Adafruit_MQTT_Subscribe(&mqtt, ERRORS); 
+const char THROTTLE[] PROGMEM = AIO_USERNAME "/throttle";
+Adafruit_MQTT_Subscribe throttle = Adafruit_MQTT_Subscribe(&mqtt, THROTTLE);
+
 /****************************** Feeds ***************************************/
 
-// Setup a feed called 'LightSensor' for publishing.
+// Setup feeds for publishing.
 // Notice MQTT paths for AIO follow the form: <username>/feeds/<feedname>
 Adafruit_MQTT_Publish LightSensor = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/LightSensor");
 Adafruit_MQTT_Publish Temperature = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/Temperature");
@@ -49,18 +56,18 @@ float lightRelativeLUX = 0;
 int incomingByte;
 
 void setup() {
-  // Bridge setup may take a few seconds so indicate when it's bridged via PIN 13
+  // for debugging: Bridge setup may take a few seconds so indicate when it's bridged via PIN 13
   pinMode(ledPin,OUTPUT);
   digitalWrite(ledPin, HIGH);
   Bridge.begin(); // start bridge b/w Atmega/AVR + AR/Linux
-  // for debugging
-  Console.begin(); // start console output
-
-  while (!Console){
+  Console.begin(); // start console output after bridged so we can get remote/Wifi Console
+  while (!Console){ // enable this if you don't want to start main loop() until your Console connects
     ; // wait for Console port to connect.
   }
   Console.println(F("You're connected to my console, and Bridge begun."));
   digitalWrite(ledPin, LOW);
+  mqtt.subscribe(&throttle);
+  mqtt.subscribe(&errors);
 }
 
 void loop() {
@@ -72,22 +79,26 @@ void loop() {
     if (incomingByte == 'H') { digitalWrite(ledPin, HIGH); } // if it's a capital H (ASCII 72), turn on the LED 
     if (incomingByte == 'L') { digitalWrite(ledPin, LOW); } // if it's an L (ASCII 76) turn off the LED
   }
-  
-  MQTT_connect(); // make MQTT Server connection/reconnection; see fx below
-  
-  //take the readings
-  tempCel = analogRead(tempPin);
-  lightRelativeLUX = analogRead(lightPin); 
-  
-  // do some calculations
-  tempCel = (5*tempCel*100/1024); // the LM35 gets 5V input, linear sensitivity of 1C=10mV, and 10bit sample of Atmega , or 1024 stepping
 
-  // Publish the readings
-  if (! Temperature.publish(tempCel) ) { Console.println(F("Publish Failed")); } 
-  if (! LightSensor.publish(lightRelativeLUX) ) { Console.println(F("Publish Failed")); } 
+  // Ensure the connection to the MQTT server is alive (this will make the first
+  // connection and automatically reconnect when disconnected).  See the MQTT_connect
+  // function definition further below.
+  MQTT_connect();
 
-  if(! mqtt.ping()) { Console.println(F("MQTT Ping failed!")); } // ping the server to keep MQTT connection alive, use only for frequent sampling rates
-  
+  // this is our 'wait for incoming subscription packets' busy subloop
+  // try to spend your time here
+  Adafruit_MQTT_Subscribe *subscription;
+  while ((subscription = mqtt.readSubscription(5000))) {
+    if(subscription == &errors) {
+      Console.print(F("ERROR: "));
+      Console.println((char *)errors.lastread);
+    } else if(subscription == &throttle) {
+      Console.print(F("THROTTLED: "));
+      Console.println((char *)throttle.lastread);
+    }
+  }
+
+  mqtt.ping();
   delay(samplePeriod); //the base sampling wait
 }
 
@@ -101,7 +112,7 @@ void MQTT_connect() {
 
   while ((ret = mqtt.connect()) != 0) { // connect will return 0 for connected
        Console.print(mqtt.connectErrorString(ret));
-       Console.println("... Retrying MQTT connection in 5 seconds...");
+       Console.println("... Retrying MQTT connection ...");
        mqtt.disconnect();
        digitalWrite(ledPin, HIGH);
        delay(5000);  // wait for reconnect
