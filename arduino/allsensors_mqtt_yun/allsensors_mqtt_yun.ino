@@ -46,7 +46,7 @@ const int tempPin = 0;
 const int lightPin = 1;
 const int ledPin = 13; // the pin for Console notification
 const int chipSelect = 8; // Sparkfun SD shield: pin 8
-int samplePeriod = 60000; //1min samples
+int samplePeriod = 5000; //1min samples
 float tempCel = 0;
 float lightRelativeLUX = 0;
 int incomingByte;
@@ -69,7 +69,7 @@ void setup() {
 
   // initialize SD Card incase remote publish of data fails
   if (!SD.begin(chipSelect)) { // check that SD card works
-    Console.println("Card failed, or not present");
+    Console.println("SD card failed, or not present");
     return;   // don't do anything more:
   }
   Console.println("SD card initialized.");
@@ -77,9 +77,9 @@ void setup() {
 
 void loop() {
 
-  Console.println(F("Looping through main sketch."));
   // simple Console check to see if responsive.  IDE has bug for Console over Wifi so always use SSH and/or telnet to verify
-  if (Console.available() > 0) { // see if there's incoming serial data:
+  if (Console.available() > 0) // see if there's incoming serial data:
+  {
     incomingByte = Console.read(); // read the oldest byte in the serial buffer:
     if (incomingByte == 'H') { digitalWrite(ledPin, HIGH); } // if it's a capital H (ASCII 72), turn on the LED 
     if (incomingByte == 'L') { digitalWrite(ledPin, LOW); } // if it's an L (ASCII 76) turn off the LED
@@ -100,14 +100,12 @@ void loop() {
     CSVDataFile.println(CSVMetricsLine);
     CSVDataFile.close();
     Console.println(CSVMetricsLine); 
-  } 
-    else { Console.println("error opening data file!"); }
+  } else { Console.println("error opening data file!"); }
     
   // Publish the readings
   MQTT_connect(); // make MQTT Server connection/reconnection; see fx below
   if (! Temperature.publish(tempCel) ) { Console.println(F("Publish Failed")); } 
   if (! LightSensor.publish(lightRelativeLUX) ) { Console.println(F("Publish Failed")); } 
-  if(! mqtt.ping()) { Console.println(F("MQTT Ping failed!")); } // ping the server to keep MQTT connection alive, use only for frequent sampling rates
   
   delay(samplePeriod); //the base sampling wait
 }
@@ -117,16 +115,18 @@ void loop() {
 void MQTT_connect() {
   
   int8_t ret;
-  Console.print("Connecting to MQTT Server ... ");
-  if (mqtt.connected()) { return; } // check if already connected. exit if connected
-
-  while ((ret = mqtt.connect()) != 0) { // connect will return 0 for connected
+  
+  if ((ret = mqtt.connect()) != 0) // we're not connected to MQTT Server
+  { 
        Console.print(mqtt.connectErrorString(ret));
-       Console.println("... Retrying MQTT connection in 5 seconds...");
        mqtt.disconnect();
-       digitalWrite(ledPin, HIGH);
-       delay(5000);  // wait for reconnect
-       digitalWrite(ledPin, LOW);
-  }
-  Console.println("MQTT Re-connected!");
+       digitalWrite(ledPin, HIGH);     
+  } else 
+    { 
+    if(! mqtt.ping())  // ping the server to keep MQTT connection alive, use only for frequent sampling rates
+    { 
+      Console.println(F("MQTT Ping failed!")); 
+      digitalWrite(ledPin, HIGH);  
+    } else { digitalWrite(ledPin, LOW); }
+    }
 }
