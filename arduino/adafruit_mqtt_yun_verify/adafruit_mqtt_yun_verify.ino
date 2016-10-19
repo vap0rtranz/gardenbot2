@@ -13,6 +13,8 @@
 #include <Bridge.h>
 #include <Console.h>
 #include <BridgeClient.h>
+#include <SPI.h>
+#include <SD.h>
 #include "Adafruit_MQTT.h"
 #include "Adafruit_MQTT_Client.h"
 
@@ -50,12 +52,16 @@ Adafruit_MQTT_Publish Temperature = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/
 const int tempPin = 0;
 const int lightPin = 1;
 const int ledPin = 13; // the pin for Console notification
+const int chipSelect = 8; // Sparkfun SD shield: pin 8
 int samplePeriod = 5000; //1min samples
 float tempCel = 0;
 float lightRelativeLUX = 0;
 int incomingByte;
+File dataFile;
+String CSVMetricsLine = "";
 
 void setup() {
+  
   // for debugging: Bridge setup may take a few seconds so indicate when it's bridged via PIN 13
   pinMode(ledPin,OUTPUT);
   digitalWrite(ledPin, HIGH);
@@ -66,8 +72,16 @@ void setup() {
   }
   Console.println(F("You're connected to my console, and Bridge begun."));
   digitalWrite(ledPin, LOW);
-  mqtt.subscribe(&throttle);
-  mqtt.subscribe(&errors);
+  
+  // initialize SD Card incase remote publish of data fails
+  if (!SD.begin(chipSelect)) { // check that SD card works
+    Console.println("Card failed, or not present");
+    return;   // don't do anything more:
+  }
+  Console.println("SD card initialized.");
+
+  // mqtt.subscribe(&throttle);
+  // mqtt.subscribe(&errors);
 }
 
 void loop() {
@@ -80,6 +94,15 @@ void loop() {
     if (incomingByte == 'L') { digitalWrite(ledPin, LOW); } // if it's an L (ASCII 76) turn off the LED
   }
 
+  CSVMetricsLine = String(String(tempCel) + "," + String(lightRelativeLUX)); // prep metrics sensor data to file by converting to strings
+  if (dataFile) // did the open filehandle succeed?
+  {
+    dataFile.println(CSVMetricsLine);
+    dataFile.close();
+    Console.println(CSVMetricsLine); 
+  } 
+    else { Console.println("error opening data file!"); }
+
   // Ensure the connection to the MQTT server is alive (this will make the first
   // connection and automatically reconnect when disconnected).  See the MQTT_connect
   // function definition further below.
@@ -87,6 +110,8 @@ void loop() {
 
   // this is our 'wait for incoming subscription packets' busy subloop
   // try to spend your time here
+  /***** 
+   *  
   Adafruit_MQTT_Subscribe *subscription;
   while ((subscription = mqtt.readSubscription(5000))) {
     if(subscription == &errors) {
@@ -97,6 +122,8 @@ void loop() {
       Console.println((char *)throttle.lastread);
     }
   }
+  *
+  */
 
   mqtt.ping();
   delay(samplePeriod); //the base sampling wait

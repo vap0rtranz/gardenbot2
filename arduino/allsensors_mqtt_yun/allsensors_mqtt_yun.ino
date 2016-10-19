@@ -13,6 +13,8 @@
 #include <Bridge.h>
 #include <Console.h>
 #include <BridgeClient.h>
+#include <SPI.h>
+#include <SD.h>
 #include "Adafruit_MQTT.h"
 #include "Adafruit_MQTT_Client.h"
 
@@ -43,10 +45,13 @@ Adafruit_MQTT_Publish Temperature = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/
 const int tempPin = 0;
 const int lightPin = 1;
 const int ledPin = 13; // the pin for Console notification
-int samplePeriod = 5000; //1min samples
+const int chipSelect = 8; // Sparkfun SD shield: pin 8
+int samplePeriod = 60000; //1min samples
 float tempCel = 0;
 float lightRelativeLUX = 0;
 int incomingByte;
+File CSVDataFile;
+String CSVMetricsLine = "";
 
 void setup() {
   // Bridge setup may take a few seconds so indicate when it's bridged via PIN 13
@@ -61,6 +66,13 @@ void setup() {
   }
   Console.println(F("You're connected to my console, and Bridge begun."));
   digitalWrite(ledPin, LOW);
+
+  // initialize SD Card incase remote publish of data fails
+  if (!SD.begin(chipSelect)) { // check that SD card works
+    Console.println("Card failed, or not present");
+    return;   // don't do anything more:
+  }
+  Console.println("SD card initialized.");
 }
 
 void loop() {
@@ -73,8 +85,6 @@ void loop() {
     if (incomingByte == 'L') { digitalWrite(ledPin, LOW); } // if it's an L (ASCII 76) turn off the LED
   }
   
-  MQTT_connect(); // make MQTT Server connection/reconnection; see fx below
-  
   //take the readings
   tempCel = analogRead(tempPin);
   lightRelativeLUX = analogRead(lightPin); 
@@ -82,10 +92,21 @@ void loop() {
   // do some calculations
   tempCel = (5*tempCel*100/1024); // the LM35 gets 5V input, linear sensitivity of 1C=10mV, and 10bit sample of Atmega , or 1024 stepping
 
+  // write the readings
+  CSVDataFile = SD.open("data.csv", FILE_WRITE); // open file. only one file can be open at a time,
+  CSVMetricsLine = String(String(tempCel) + "," + String(lightRelativeLUX)); // prep metrics sensor data to file by converting to strings
+  if (CSVDataFile) // did the open filehandle succeed?
+  {
+    CSVDataFile.println(CSVMetricsLine);
+    CSVDataFile.close();
+    Console.println(CSVMetricsLine); 
+  } 
+    else { Console.println("error opening data file!"); }
+    
   // Publish the readings
+  MQTT_connect(); // make MQTT Server connection/reconnection; see fx below
   if (! Temperature.publish(tempCel) ) { Console.println(F("Publish Failed")); } 
   if (! LightSensor.publish(lightRelativeLUX) ) { Console.println(F("Publish Failed")); } 
-
   if(! mqtt.ping()) { Console.println(F("MQTT Ping failed!")); } // ping the server to keep MQTT connection alive, use only for frequent sampling rates
   
   delay(samplePeriod); //the base sampling wait
