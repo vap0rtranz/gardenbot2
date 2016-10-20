@@ -38,8 +38,8 @@ Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO
 
 // Setup a feed called 'LightSensor' for publishing.
 // Notice MQTT paths for AIO follow the form: <username>/feeds/<feedname>
-Adafruit_MQTT_Publish LightSensor = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "vap0rtranz/feeds/LightSensor");
-Adafruit_MQTT_Publish Temperature = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "vap0rtranz/feeds/Temperature");
+Adafruit_MQTT_Publish LightSensor = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/feeds/LightSensor");
+Adafruit_MQTT_Publish Temperature = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/feeds/Temperature");
 
 /*************************** Sketch Code ************************************/
 
@@ -48,7 +48,7 @@ const int tempPin = 0;
 const int lightPin = 1;
 const int ledPin = 13; // the pin for Console notification
 const int chipSelect = 8; // Sparkfun SD shield: pin 8
-int samplePeriod = 5000; //1min samples
+int samplePeriod = 60000; //1min samples
 
 // other vars
 float tempCel = 0;
@@ -96,6 +96,8 @@ void loop() {
     dateProcess.addParameter("+%x_%H:%M:%S");
     dateProcess.run();
   }
+  String timestamp = dateProcess.readString();
+  timestamp.trim();
   tempCel = analogRead(tempPin);
   lightRelativeLUX = analogRead(lightPin); 
   
@@ -104,7 +106,7 @@ void loop() {
 
   // write the readings
   CSVDataFile = SD.open("data.csv", FILE_WRITE); // open file. only one file can be open at a time,
-  CSVMetricsLine = String(dateProcess.readString() + "," + String(tempCel) + "," + String(lightRelativeLUX)); // prep metrics sensor data to file by converting to strings
+  CSVMetricsLine = String(timestamp + "," + String(tempCel) + "," + String(lightRelativeLUX)); // prep metrics sensor data to file by converting to strings
   if (CSVDataFile) // did the open filehandle succeed?
   {
     CSVDataFile.println(CSVMetricsLine);
@@ -120,7 +122,7 @@ void loop() {
   delay(samplePeriod); //the base sampling wait
 }
 
-// Function to connect/reconnect to MQTT Server.
+// Function to connect/reconnect to MQTT Server, handling disconnects & pings.
 // call from main loop() for any pub/sub clients
 void MQTT_connect() {
   
@@ -130,10 +132,10 @@ void MQTT_connect() {
   { 
        Console.print(mqtt.connectErrorString(ret));
        mqtt.disconnect();
-       digitalWrite(ledPin, HIGH);     
+       digitalWrite(ledPin, HIGH);  // visually indicate problem with MQTT connection   
   } else 
     { 
-    if(! mqtt.ping())  // ping the server to keep MQTT connection alive, use only for frequent sampling rates
+    if(! mqtt.ping())  // ping the server to keep MQTT connection alive, use only for frequent sampling rates (usually greater than 15secs)
     { 
       Console.println(F("MQTT Ping failed!")); 
       digitalWrite(ledPin, HIGH);  
