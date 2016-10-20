@@ -21,7 +21,7 @@ int samplePeriod = 5000; //1min samples
 float tempCel = 0;
 float lightRelativeLUX = 0;
 int incomingByte;
-File dataFile;
+File CSVDataFile;
 String CSVMetricsLine = "";
 
 BridgeClient client; //  to communicate using the Yun's bridge & Linux OS.
@@ -57,7 +57,7 @@ void loop() {
     if (incomingByte == 'L') { digitalWrite(ledPin, LOW); } // if it's an L (ASCII 76) turn off the LED
   }
 
-  dataFile = SD.open("data.csv", FILE_WRITE); // open file. only one file can be open at a time,
+  CSVDataFile = SD.open("data.csv", FILE_WRITE); // open file. only one file can be open at a time,
   
   //take the readings
   tempCel = analogRead(tempPin);
@@ -67,10 +67,10 @@ void loop() {
   tempCel = (5*tempCel*100/1024); // the LM35 gets 5V input, linear sensitivity of 1C=10mV, and 10bit sample of Atmega , or 1024 stepping
   
   CSVMetricsLine = String(String(tempCel) + "," + String(lightRelativeLUX)); // prep metrics sensor data to file by converting to strings
-  if (dataFile) // did the open filehandle succeed?
+  if (CSVDataFile) // did the open filehandle succeed?
   {
-    dataFile.println(CSVMetricsLine);
-    dataFile.close();
+    CSVDataFile.println(CSVMetricsLine);
+    CSVDataFile.close();
     Console.println(CSVMetricsLine); 
   } 
     else { Console.println("error opening data file!"); }
