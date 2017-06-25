@@ -1,3 +1,6 @@
+// similar to low-power library
+// this library has function to handling time better
+// this library does not do scaling of microcontroller frequency
 #include <Narcoleptic.h>
 
 int ledPin = LED_BUILTIN;

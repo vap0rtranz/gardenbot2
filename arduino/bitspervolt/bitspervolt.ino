@@ -1,3 +1,5 @@
+// this will return the line voltage of a select pin
+// the sample resolution for Atmega328P is 1024 bits per 5 Volts
 int analogPin = A0;
 int delayPeriod = 1000;
 float bitsPerVolt = 1023 / 5;
