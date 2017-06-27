@@ -1,5 +1,3 @@
-#include "Arduino.h"
-
 /***************************************************
   Adafruit MQTT Mockup for Publishing Arduino Yun readings
 
@@ -12,9 +10,7 @@
 
   MIT license, all text above must be included in any redistribution
  ****************************************************/
-#include <Console.h>
 #include <BridgeClient.h>
-#include <Process.h>
 #include <SD.h>
 #include "Adafruit_MQTT.h"
 #include "Adafruit_MQTT_Client.h"
@@ -24,7 +20,17 @@
 #define AIO_SERVER      "io.adafruit.com"
 #define AIO_SERVERPORT  1883
 #define AIO_USERNAME    "vap0rtranz"
-#define AIO_KEY         "3f445b514597440ab7ed8a15096938f7"
+#define AIO_KEY         "d31936d303a14e3b8ed2dadbd7e308fe"
+
+/********** debug Scaffolding as Variadic macro called "DEBUG" ************/
+#define DEBUG   //If you comment this line, the DPRINT & DPRINTLN lines are defined as blank.
+#ifdef DEBUG    //Macros are usually in all capital letters.
+  #define DPRINT(...)    Serial.print(__VA_ARGS__)     //DPRINT is a macro, debug print
+  #define DPRINTLN(...)  Serial.println(__VA_ARGS__)   //DPRINTLN is a macro, debug print with new line
+#else
+  #define DPRINT(...)    //now defines a blank line
+  #define DPRINTLN(...)  //now defines a blank line
+#endif
 
 /************ Global State (you don't need to change this!) ******************/
 
@@ -44,57 +50,56 @@ Adafruit_MQTT_Publish Temperature = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/fee
 /*************************** Sketch Code ************************************/
 
 // configurable global parameters
-const int tempPin = 0;
-const int lightPin = 1;
-const int ledPin = 13; // the pin for Console notification
-const int chipSelect = 8; // Sparkfun SD shield: pin 8
-const int samplePeriod = 60000; //1min samples
+const byte tempPin = 0;
+const byte lightPin = 1;
+const byte ledPin = 13; // the pin for Console notification
+const byte chipSelect = 11; // Sparkfun SD shield: pin 8.  pin 11 is default
+const int samplePeriod = 10000; //1min samples
 
 // other vars
 float tempCel = 0;
 float lightRelativeLUX = 0;
 int8_t ret;
-Process dateProcess;
 File CSVDataFile;
 String CSVMetricsLine = "";
 
 void setup() {
-  // Bridge setup may take a few seconds so indicate when it's bridged via PIN 13
-  pinMode(ledPin,OUTPUT);
-  digitalWrite(ledPin, HIGH);
-  Bridge.begin(); // start bridge b/w Atmega/AVR + AR/Linux
   // for debugging
-  Console.begin(); // start console output
-
-  while (!Console){
-    ; // wait for Console port to connect.
+  pinMode(ledPin,OUTPUT);
+  while (!Serial){
+    digitalWrite(ledPin, HIGH); // if L/13 light is lit, then waiting for Serial
   }
-  Console.println("You're connected to my console, and Bridge begun.");
-  digitalWrite(ledPin, LOW);
+  DPRINTLN("You're connected to my console");
+  
+  // Bridge setup may take a few seconds so indicate when it's bridged via PIN 13
+  Bridge.begin(); // start bridge b/w Atmega/AVR + AR/Linux, this appears to be blocking
+  DPRINTLN("Bridge finished.");
 
   // initialize SD Card incase remote publish of data fails
   if (!SD.begin(chipSelect)) { // check that SD card works
-    Console.println("SD card failed, or not present");
-    return;   // don't do anything more:
+    DPRINTLN("SD card failed, or not present");
+    digitalWrite(ledPin, HIGH); 
+    //return;   // don't do anything more?
+  } else {
+    DPRINTLN("SD card initialized.");
+    digitalWrite(ledPin, LOW);
   }
-  Console.println("SD card initialized.");
 
   //make MQTT Server connection/reconnection; see fx below
   ret = mqtt.connect();
-  if (ret == 0) { Console.println("MQTT connected"); } else { Console.print(mqtt.connectErrorString(ret)); }
+  if (ret == 0) { 
+    DPRINTLN("MQTT connected"); 
+    digitalWrite(ledPin, LOW);
+   } else { 
+    DPRINT(mqtt.connectErrorString(ret)); 
+    digitalWrite(ledPin, HIGH); 
+    return;   // don't do anything more?
+   }
 }
 
 void loop() {
-
   //take the readings
-  if (!dateProcess.running()) { // must block Process to wait results from across the Bridge
-    dateProcess.begin("date");
-    dateProcess.addParameter("+%x_%H:%M:%S");
-    dateProcess.run();
-  } else { Console.println("Running date process ..."); }
   
-  String timestamp = dateProcess.readString();
-  timestamp.trim();
   tempCel = analogRead(tempPin);
   lightRelativeLUX = analogRead(lightPin);
 
@@ -102,25 +107,27 @@ void loop() {
   tempCel = ( 5*tempCel*100/1024 ); // the LM35 gets 5V input, linear sensitivity of 1C=10mV, and 10bit sample of Atmega , or 1024 stepping
 
   // write the readings
+  CSVMetricsLine = String("," + String(tempCel) + "," + String(lightRelativeLUX)); // prep metrics sensor data to file by converting to strings
   CSVDataFile = SD.open("data.csv", FILE_WRITE); // open file. only one file can be open at a time,
-  CSVMetricsLine = String(timestamp + "," + String(tempCel) + "," + String(lightRelativeLUX)); // prep metrics sensor data to file by converting to strings
   if (CSVDataFile) // did the open filehandle succeed?
   {
     CSVDataFile.println(CSVMetricsLine);
     CSVDataFile.close();
-    Console.println(CSVMetricsLine);
-  } else { Console.println("error opening data file!"); }
+    DPRINTLN(CSVMetricsLine);
+  } else { DPRINTLN("error opening data file!"); }
 
+  // publish sensor data
   if ((! Temperature.publish(tempCel)) || (! LightSensor.publish(lightRelativeLUX) )) 
   { 
-     Console.print("Publish Failed! "); 
+     DPRINTLN("Publish Failed! "); 
      ret = mqtt.disconnect();
      digitalWrite(ledPin, HIGH);  // visually indicate problem with MQTT connection
-     Console.println(mqtt.connectErrorString(ret));
+     DPRINT(mqtt.connectErrorString(ret));
      ret = mqtt.connect();
-     if (ret == 0) { Console.println("MQTT RE-connected"); } else { Console.print(mqtt.connectErrorString(ret)); }
+     if (ret == 0) { DPRINTLN("MQTT RE-connected"); } else { DPRINT(mqtt.connectErrorString(ret)); }
      digitalWrite(ledPin, LOW);  // visually indicate problem with MQTT connection
   }
+
   delay(samplePeriod); //the base sampling wait
 }
 
