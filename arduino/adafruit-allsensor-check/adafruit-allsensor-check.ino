@@ -33,26 +33,22 @@
 #endif
 
 /************ Global State (you don't need to change this!) ******************/
-
 // Create a BridgeClient instance to communicate using the Yun's bridge & Linux OS.
 BridgeClient client;
 // Setup the MQTT client class by passing in the WiFi client and MQTT server and login details.
 Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO_KEY);
 //Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME);
 
-/****************************** Feeds ***************************************/
-
+/****************************** Feeds / Publishers ***************************************/
 // Setup a feed called 'LightSensor' for publishing.
 // Notice MQTT paths for AIO follow the form: <username>/feeds/<feedname>
 Adafruit_MQTT_Publish LightSensor = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/feeds/LightSensor");
 Adafruit_MQTT_Publish Temperature = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/feeds/Temperature");
 
 /*************************** Sketch Code ************************************/
-
 // configurable global parameters
 const byte tempPin = 0;
 const byte lightPin = 1;
-const byte ledPin = 13; // the pin for Console notification
 const byte chipSelect = 11; // Sparkfun SD shield: pin 8.  pin 11 is default
 const int samplePeriod = 10000; //1min samples
 
@@ -65,9 +61,9 @@ String CSVMetricsLine = "";
 
 void setup() {
   // for debugging
-  pinMode(ledPin,OUTPUT);
+  pinMode(LED_BUILTIN,OUTPUT);
   while (!Serial){
-    digitalWrite(ledPin, HIGH); // if L/13 light is lit, then waiting for Serial
+    digitalWrite(LED_BUILTIN, HIGH); // if L/13 light is lit, then waiting for Serial
   }
   DPRINTLN("You're connected to my console");
   
@@ -78,35 +74,46 @@ void setup() {
   // initialize SD Card incase remote publish of data fails
   if (!SD.begin(chipSelect)) { // check that SD card works
     DPRINTLN("SD card failed, or not present");
-    digitalWrite(ledPin, HIGH); 
+    digitalWrite(LED_BUILTIN, HIGH); 
     //return;   // don't do anything more?
   } else {
     DPRINTLN("SD card initialized.");
-    digitalWrite(ledPin, LOW);
+    digitalWrite(LED_BUILTIN, LOW);
   }
 
   //make MQTT Server connection/reconnection; see fx below
   ret = mqtt.connect();
   if (ret == 0) { 
     DPRINTLN("MQTT connected"); 
-    digitalWrite(ledPin, LOW);
+    digitalWrite(LED_BUILTIN, LOW);
    } else { 
     DPRINT(mqtt.connectErrorString(ret)); 
-    digitalWrite(ledPin, HIGH); 
+    digitalWrite(LED_BUILTIN, HIGH); 
     return;   // don't do anything more?
    }
 }
 
 void loop() {
-  //take the readings
+
+  getSensorReadings();
   
+  writeSensorToFile();
+
+  publishSensorToBroker();
+
+  delay(samplePeriod); //the base sampling wait
+}
+
+void getSensorReadings() {
+  //take the readings
   tempCel = analogRead(tempPin);
   lightRelativeLUX = analogRead(lightPin);
+  // do some sensor data calculations to convert to meaningful units
+  tempCel = ( 5*tempCel*100/1024 ); // the LM35 sensor gets 5V input, linear sensitivity of 1C=10mV, and 10bit sample of Atmega , or 1024 stepping
+}
 
-  // do some calculations
-  tempCel = ( 5*tempCel*100/1024 ); // the LM35 gets 5V input, linear sensitivity of 1C=10mV, and 10bit sample of Atmega , or 1024 stepping
-
-  // write the readings
+void writeSensorToFile() {
+// write the readings
   CSVMetricsLine = String("," + String(tempCel) + "," + String(lightRelativeLUX)); // prep metrics sensor data to file by converting to strings
   CSVDataFile = SD.open("data.csv", FILE_WRITE); // open file. only one file can be open at a time,
   if (CSVDataFile) // did the open filehandle succeed?
@@ -115,19 +122,19 @@ void loop() {
     CSVDataFile.close();
     DPRINTLN(CSVMetricsLine);
   } else { DPRINTLN("error opening data file!"); }
+}
 
+void publishSensorToBroker() {
   // publish sensor data
   if ((! Temperature.publish(tempCel)) || (! LightSensor.publish(lightRelativeLUX) )) 
   { 
      DPRINTLN("Publish Failed! "); 
      ret = mqtt.disconnect();
-     digitalWrite(ledPin, HIGH);  // visually indicate problem with MQTT connection
+     digitalWrite(LED_BUILTIN, HIGH);  // visually indicate problem with MQTT connection
      DPRINT(mqtt.connectErrorString(ret));
      ret = mqtt.connect();
      if (ret == 0) { DPRINTLN("MQTT RE-connected"); } else { DPRINT(mqtt.connectErrorString(ret)); }
-     digitalWrite(ledPin, LOW);  // visually indicate problem with MQTT connection
+     digitalWrite(LED_BUILTIN, LOW);  // visually indicate problem with MQTT connection
   }
-
-  delay(samplePeriod); //the base sampling wait
 }
 
