@@ -42,22 +42,22 @@ Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO
 /****************************** Feeds / Publishers ***************************************/
 // Setup a feed called 'LightSensor' for publishing.
 // Notice MQTT paths for AIO follow the form: <username>/feeds/<feedname>
-Adafruit_MQTT_Publish LightSensor = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/feeds/LightSensor");
-Adafruit_MQTT_Publish Temperature = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/feeds/Temperature");
+Adafruit_MQTT_Publish LightSensor = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/Feeds/LightSensor");
+Adafruit_MQTT_Publish Temperature = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/Feeds/Temperature");
+Adafruit_MQTT_Publish SoilMoisture = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/Feeds/SoilMoisture");
 
 /*************************** Sketch Code ************************************/
 // configurable global parameters
-const byte tempPin = 0;
-const byte lightPin = 1;
+// tempPin = 0; lightPin = 1; soilPin = 2;
 const byte chipSelect = 11; // Sparkfun SD shield: pin 8.  pin 11 is default
 const int samplePeriod = 10000; //1min samples
+const byte sampleBuffer = 10;
 
 // other vars
-float tempCel = 0;
-float lightRelativeLUX = 0;
+byte pin[] = {0, 1, 2};
+float sensor[3];
 int8_t ret;
 File CSVDataFile;
-String CSVMetricsLine = "";
 
 void setup() {
   // for debugging
@@ -99,34 +99,54 @@ void loop() {
   
   writeSensorToFile();
 
-  publishSensorToBroker();
+  //publishSensorToBroker();
 
   delay(samplePeriod); //the base sampling wait
+  for (int j = 0; j < 3; j++) {
+      sensor[j] = 0;
+  }
 }
 
 void getSensorReadings() {
+
   //take the readings
-  tempCel = analogRead(tempPin);
-  lightRelativeLUX = analogRead(lightPin);
+  // # of samples to take
+  for (int i = 0; i < sampleBuffer; i++) {
+    // run through sensors in sequence
+    for (int j = 0; j < 3; j++) {
+      sensor[j] = sensor[j] + analogRead(pin[j]);
+    }
+  }
+  for (int j = 0; j < 3; j++) {
+      sensor[j] = sensor[j] / sampleBuffer;
+  }
   // do some sensor data calculations to convert to meaningful units
-  tempCel = ( 5*tempCel*100/1024 ); // the LM35 sensor gets 5V input, linear sensitivity of 1C=10mV, and 10bit sample of Atmega , or 1024 stepping
+  // for temperature: the LM35 sensor gets 5V input, linear sensitivity of 1C=10mV, and 10bit sample of Atmega , or 1024 stepping
+  sensor[0] = ( 5*sensor[0]*100/1024 ); 
+  // 0-5V for reading range of 0 - 10,000, so "relative" luminescence
+  // the sensor value description: 0  ~300 dry soil, 300~700 humid soil, 700~950 in water
 }
 
 void writeSensorToFile() {
 // write the readings
-  CSVMetricsLine = String("," + String(tempCel) + "," + String(lightRelativeLUX)); // prep metrics sensor data to file by converting to strings
   CSVDataFile = SD.open("data.csv", FILE_WRITE); // open file. only one file can be open at a time,
   if (CSVDataFile) // did the open filehandle succeed?
   {
-    CSVDataFile.println(CSVMetricsLine);
+     for (int j = 0; j < 3; j++) {
+      CSVDataFile.print(sensor[j]);
+      CSVDataFile.print(",");
+      DPRINT(sensor[j]);
+      DPRINT(",");
+    }
+    CSVDataFile.println();
     CSVDataFile.close();
-    DPRINTLN(CSVMetricsLine);
+    DPRINTLN(";");
   } else { DPRINTLN("error opening data file!"); }
 }
 
 void publishSensorToBroker() {
   // publish sensor data
-  if ((! Temperature.publish(tempCel)) || (! LightSensor.publish(lightRelativeLUX) )) 
+  //if ((! Temperature.publish(sensor[0])) || (! LightSensor.publish(sensor[1])) || (! SoilMoisture.publish(sensor[2]))) 
   { 
      DPRINTLN("Publish Failed! "); 
      ret = mqtt.disconnect();
