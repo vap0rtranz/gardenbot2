@@ -14,13 +14,8 @@
 #include <SD.h>
 #include "Adafruit_MQTT.h"
 #include "Adafruit_MQTT_Client.h"
-
-/************************* Adafruit.io Setup *********************************/
-
-#define AIO_SERVER      "io.adafruit.com"
-#define AIO_SERVERPORT  1883
-#define AIO_USERNAME    "vap0rtranz"
-#define AIO_KEY         "d31936d303a14e3b8ed2dadbd7e308fe"
+// DHT Written by ladyada, public domain
+#include "DHT.h"
 
 /********** debug Scaffolding as Variadic macro called "DEBUG" ************/
 #define DEBUG   //If you comment this line, the DPRINT & DPRINTLN lines are defined as blank.
@@ -31,6 +26,12 @@
   #define DPRINT(...)    //now defines a blank line
   #define DPRINTLN(...)  //now defines a blank line
 #endif
+
+/************************* Adafruit.io Setup *********************************/
+#define AIO_SERVER      "io.adafruit.com"
+#define AIO_SERVERPORT  1883
+#define AIO_USERNAME    "vap0rtranz"
+#define AIO_KEY         "d31936d303a14e3b8ed2dadbd7e308fe"
 
 /************ Global State (you don't need to change this!) ******************/
 // Create a BridgeClient instance to communicate using the Yun's bridge & Linux OS.
@@ -46,18 +47,26 @@ Adafruit_MQTT_Publish LightSensor = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/Fee
 Adafruit_MQTT_Publish Temperature = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/Feeds/Temperature");
 Adafruit_MQTT_Publish SoilMoisture = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/Feeds/SoilMoisture");
 
+/** DHT sensor setup **/
+#define DHTTYPE DHT11   // DHT 11
+
 /*************************** Sketch Code ************************************/
 // configurable global parameters
 // tempPin = 0; lightPin = 1; soilPin = 2;
 const byte chipSelect = 11; // Sparkfun SD shield: pin 8.  pin 11 is default
+const byte dhtPin = 8; // digital pin 8
 const int samplePeriod = 10000; //1min samples
 const byte sampleBuffer = 10;
 
 // other vars
 byte pin[] = {0, 1, 2};
 float sensor[3];
+float humidity; 
+float fahrenheit; 
+float heatIndex;
 int8_t ret;
 File CSVDataFile;
+DHT dht(dhtPin, DHTTYPE);
 
 void setup() {
   // for debugging
@@ -71,6 +80,9 @@ void setup() {
   Bridge.begin(); // start bridge b/w Atmega/AVR + AR/Linux, this appears to be blocking
   DPRINTLN("Bridge finished.");
 
+  // Initialize DHT sensor.
+  dht.begin();
+
   // initialize SD Card incase remote publish of data fails
   if (!SD.begin(chipSelect)) { // check that SD card works
     DPRINTLN("SD card failed, or not present");
@@ -82,6 +94,7 @@ void setup() {
   }
 
   //make MQTT Server connection/reconnection; see fx below
+  /*
   ret = mqtt.connect();
   if (ret == 0) { 
     DPRINTLN("MQTT connected"); 
@@ -91,11 +104,14 @@ void setup() {
     digitalWrite(LED_BUILTIN, HIGH); 
     return;   // don't do anything more?
    }
+   */
 }
 
 void loop() {
 
-  getSensorReadings();
+  getAnalogSensorReadings();
+
+  getDHTSensorReadings();
   
   writeSensorToFile();
 
@@ -107,9 +123,9 @@ void loop() {
   }
 }
 
-void getSensorReadings() {
+void getAnalogSensorReadings() {
 
-  //take the readings
+  //take the analog readings
   // # of samples to take
   for (int i = 0; i < sampleBuffer; i++) {
     // run through sensors in sequence
@@ -127,6 +143,22 @@ void getSensorReadings() {
   // the sensor value description: 0  ~300 dry soil, 300~700 humid soil, 700~950 in water
 }
 
+void getDHTSensorReadings() {
+    // Reading temperature or humidity takes about 250 milliseconds!
+  // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
+  humidity = dht.readHumidity();
+  // Read temperature as Fahrenheit (isFahrenheit = true)
+  fahrenheit = dht.readTemperature(true);
+
+  // Check if any reads failed and exit early (to try again).
+  if (isnan(humidity) || isnan(fahrenheit)) {
+    DPRINTLN("Failed to read from DHT sensor!");
+  } else {
+    // Compute heat index in Fahrenheit (the default)
+    heatIndex = dht.computeHeatIndex(fahrenheit, humidity);
+  }
+}
+
 void writeSensorToFile() {
 // write the readings
   CSVDataFile = SD.open("data.csv", FILE_WRITE); // open file. only one file can be open at a time,
@@ -138,9 +170,21 @@ void writeSensorToFile() {
       DPRINT(sensor[j]);
       DPRINT(",");
     }
+    CSVDataFile.print(humidity);
+    CSVDataFile.print(",");
+    CSVDataFile.print(fahrenheit);
+    CSVDataFile.print(",");
+    CSVDataFile.print(heatIndex);
+    CSVDataFile.print(",");
+    DPRINT(humidity);
+    DPRINT(",");
+    DPRINT(fahrenheit);
+    DPRINT(",");
+    DPRINT(heatIndex);
+    DPRINT(",");
     CSVDataFile.println();
-    CSVDataFile.close();
     DPRINTLN(";");
+        CSVDataFile.close();
   } else { DPRINTLN("error opening data file!"); }
 }
 
