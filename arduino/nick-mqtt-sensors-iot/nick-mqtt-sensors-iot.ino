@@ -1,19 +1,7 @@
-/***************************************************
-  Adafruit MQTT Mockup for Publishing Arduino Yun readings
 
-  Arduino Yun must be connected to public WiFi
-  uses the Console class for debug output (you can connect over Wifi)
-
-  Written by Tony DiCola for Adafruit Industries.
-  Revised by Justin Pittman for Gardenbot2 project:
-  https://www.hackster.io/gardnergeeks/gardenbot2-2efcde
-
-  MIT license, all text above must be included in any redistribution
- ****************************************************/
-#include <BridgeClient.h>
+#include <YunClient.h>
 #include <SD.h>
-#include "Adafruit_MQTT.h"
-#include "Adafruit_MQTT_Client.h"
+#include <PubSubClient.h>
 // DHT Written by ladyada, public domain
 #include "DHT.h"
 
@@ -28,47 +16,46 @@
 #endif
 
 /************************* Adafruit.io Setup *********************************/
-#define AIO_SERVER      "io.adafruit.com"
-#define AIO_SERVERPORT  1883
-#define AIO_USERNAME    "vap0rtranz"
-#define AIO_KEY         "d31936d303a14e3b8ed2dadbd7e308fe"
+//#define AIO_KEY         "d31936d303a14e3b8ed2dadbd7e308fe"
 
-/** DHT sensor setup **/
-#define DHTTYPE DHT11   // DHT 11
-
-/*************************** Sketch Code ************************************/
 // configurable global parameters
-// Create a BridgeClient instance to communicate using the Yun's bridge & Linux OS.
-BridgeClient client;
+// Create a YunClient instance to communicate using the Yun's bridge & Linux OS.
+YunClient yunClient;
 // Setup the MQTT client class by passing in the WiFi client and MQTT server and login details.
-#define MQTT_PROTOCOL_LEVEL 1
-Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO_KEY);
+PubSubClient mqttClient("iot.eclipse.org", 1883, yunClient);
 
 /****************************** Feeds / Publishers ***************************************/
 // Setup a feed called 'LightSensor' for publishing.
 // Notice MQTT paths for AIO follow the form: <username>/feeds/<feedname>
-Adafruit_MQTT_Publish LightSensor = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/Feeds/LightSensor");
-//Adafruit_MQTT_Publish Temperature = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/Feeds/Temperature");
-Adafruit_MQTT_Publish SoilMoisture = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/Feeds/SoilMoisture");
-Adafruit_MQTT_Publish DHTHumidity = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/Feeds/Humidity");
-Adafruit_MQTT_Publish DHTFahrenheit = Adafruit_MQTT_Publish(&mqtt, "vap0rtranz/Feeds/Fahrenheit");
 
-// tempPin = 0; lightPin = 1; soilPin = 2;
+// some constants
 const byte chipSelect = 11; // Sparkfun SD shield: pin 8.  pin 11 is default
 const byte dhtPin = 8; // digital pin 8
+const char* mqttBroker = "io.adafruit.com";
+const int mqttPort = 1883;
+const char* mqttClientID = "vap0rtranz";
+const char* mqttUsername = "vap0rtranz";
+const char* mqttPassword = "d31936d303a14e3b8ed2dadbd7e308fe";
 const int samplePeriod = 10000; //1min samples
 const byte sampleBuffer = 10;
 
-// other vars
+// Pins and such
+// the analog pins are, respectively: temperature, light, moisture
+// tempPin = 0; lightPin = 1; soilPin = 2;
 const byte pin[] = {0, 1, 2};
-float sensor[3];
-float humidity; 
-float fahrenheit; 
-float heatIndex;
+// DHT sensor setup, specifics which IC: 11 or 22
+#define DHTTYPE DHT11  
+DHT dht(dhtPin, DHTTYPE);
+int sensor[3];
+int humidity; 
+int fahrenheit; 
+int heatIndex;
 int8_t ret;
 File CSVDataFile;
-DHT dht(dhtPin, DHTTYPE);
+String pubString;
+char* message_buff;
 
+/*************************** Sketch Code ************************************/
 void setup() {
   // for debugging
   pinMode(LED_BUILTIN,OUTPUT);
@@ -81,7 +68,9 @@ void setup() {
 #endif
   
   // Bridge setup may take a few seconds so indicate when it's bridged via PIN 13
+  digitalWrite(LED_BUILTIN, HIGH); // if L/13 light is lit, then waiting for Serial
   Bridge.begin(); // start bridge b/w Atmega/AVR + AR/Linux, this appears to be blocking
+  digitalWrite(LED_BUILTIN, LOW); // if L/13 light is lit, then waiting for Serial
   DPRINTLN("Bridge finished.");
 
   // initialize SD Card incase remote publish of data fails
@@ -94,8 +83,14 @@ void setup() {
     digitalWrite(LED_BUILTIN, LOW);
   }
 
+  if (!yunClient.connect("example.org", 80)) {
+    DPRINTLN("WARN: not connected to Internet?");
+  } else {
+    DPRINTLN("connected to Internet.");
+  }
   //make MQTT Server connection/reconnection; see fx below
-  connectToBroker();
+  //mqttClient.setCallback(callback);
+  mqttReconnect();
    
   // Initialize DHT sensor.
   dht.begin();
@@ -104,11 +99,8 @@ void setup() {
 void loop() {
 
   getAnalogSensorReadings();
-
   getDHTSensorReadings();
-  
   writeSensorToFile();
-
   publishSensorToBroker();
 
   delay(samplePeriod); //the base sampling wait
@@ -117,16 +109,24 @@ void loop() {
   }
 }
 
-void connectToBroker() {
-  ret = mqtt.connect();
-  if (ret == 0) { 
-    DPRINTLN("MQTT connected"); 
-    digitalWrite(LED_BUILTIN, LOW);
-   } else { 
-    DPRINTLN(mqtt.connectErrorString(ret)); 
-    digitalWrite(LED_BUILTIN, HIGH); 
-    return;   // don't do anything more?
-   }
+void mqttReconnect() {
+    DPRINT("state of MQTT client is: ");
+    DPRINTLN(mqttClient.state());
+    if (! mqttClient.state() == 0) {
+        DPRINTLN("WARN: not connected to MQTT broker.");
+    }
+    DPRINT("Attempting MQTT connection...");
+    // Attempt to connect
+    if (mqttClient.connect("test")) {
+    //if (mqttClient.connect("vap0rtranz", "vap0rtranz", "d31936d303a14e3b8ed2dadbd7e308fe")) {
+      digitalWrite(LED_BUILTIN, LOW);  // visually indicate problem with MQTT connection
+      DPRINT("supposedly we're connected? state of client is: ");
+      DPRINTLN(mqttClient.state());
+    } else {
+      digitalWrite(LED_BUILTIN, HIGH);  // visually indicate problem with MQTT connection
+      DPRINT("ERROR: connection failed, state of client is: ");
+      DPRINTLN(mqttClient.state());
+    }
 }
 
 void getAnalogSensorReadings() {
@@ -196,14 +196,29 @@ void writeSensorToFile() {
 
 void publishSensorToBroker() {
   // publish sensor data
-  ret = 0;
-  ret = ret + LightSensor.publish(sensor[1]);
+  if (mqttClient.state() != 0) {
+    mqttReconnect();
+  }
+  pubString = String(sensor[0]);
+  pubString.toCharArray(message_buff, pubString.length()+1);
+  mqttClient.publish("vap0rtranz/feeds/Temperature", message_buff);
   delay(1000);
-  ret = ret + SoilMoisture.publish(sensor[2]);
+  pubString = String(sensor[1]);
+  pubString.toCharArray(message_buff, pubString.length()+1);
+  mqttClient.publish("vap0rtranz/feeds/LightSensor", message_buff);
   delay(1000);
-  ret = ret + DHTFahrenheit.publish(fahrenheit);
+  pubString = String(sensor[2]);
+  pubString.toCharArray(message_buff, pubString.length()+1);
+  mqttClient.publish("vap0rtranz/feeds/SoilMoisture", message_buff);
   delay(1000);
-  ret = ret + DHTHumidity.publish(humidity);
+  pubString = String(fahrenheit);
+  pubString.toCharArray(message_buff, pubString.length()+1);
+  mqttClient.publish("vap0rtranz/feeds/Fahrenheit", message_buff);
+  delay(1000);
+  pubString = String(humidity);
+  pubString.toCharArray(message_buff, pubString.length()+1);
+  mqttClient.publish("vap0rtranz/feeds/Humidity", message_buff);
+  /*
   if (ret > 0) 
   { 
      DPRINTLN("A Publish Failed! "); 
@@ -214,5 +229,17 @@ void publishSensorToBroker() {
      if (ret == 0) { DPRINTLN("MQTT RE-connected"); } else { DPRINT(mqtt.connectErrorString(ret)); }
      digitalWrite(LED_BUILTIN, LOW);  // visually indicate problem with MQTT connection
   }
+  */
+}
+
+// callback the payload from MQTT connection
+void callback(char* topic, byte* payload, unsigned int length) {
+  DPRINT("Message arrived [");
+  DPRINT(topic);
+  DPRINT("] ");
+  for (int i=0;i<length;i++) {
+    DPRINT((char)payload[i]);
+  }
+  DPRINTLN();
 }
 
