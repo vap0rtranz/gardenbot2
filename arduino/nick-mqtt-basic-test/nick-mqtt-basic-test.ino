@@ -21,6 +21,7 @@ BridgeClient yunClient;
 PubSubClient mqttClient(yunClient);
 int retVal;
 
+/*
 void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
@@ -30,6 +31,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
   Serial.println();
 }
+*/
 
 void reconnect() {
   // Loop until we're reconnected
@@ -39,7 +41,7 @@ void reconnect() {
     if (mqttClient.connect("vap0rtranz", "vap0rtranz", "d31936d303a14e3b8ed2dadbd7e308fe")) {
       Serial.println("connected");
     } else {
-      Serial.print("failed, rc=");
+      Serial.print("failed, error code is: ");
       Serial.print(mqttClient.state());
       Serial.println(" try again in 15 seconds");
       // Wait 15 seconds before retrying
@@ -55,7 +57,7 @@ void setup()
   Bridge.begin();
 
   mqttClient.setServer("io.adafruit.com", 1883);
-  mqttClient.setCallback(callback);
+  //mqttClient.setCallback(callback);
   
 }
 

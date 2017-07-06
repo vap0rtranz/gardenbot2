@@ -1,5 +1,5 @@
 
-#include <YunClient.h>
+#include <BridgeClient.h>
 #include <SD.h>
 #include <PubSubClient.h>
 // DHT Written by ladyada, public domain
@@ -20,9 +20,9 @@
 
 // configurable global parameters
 // Create a YunClient instance to communicate using the Yun's bridge & Linux OS.
-YunClient yunClient;
+BridgeClient yunClient;
 // Setup the MQTT client class by passing in the WiFi client and MQTT server and login details.
-PubSubClient mqttClient("iot.eclipse.org", 1883, yunClient);
+PubSubClient mqttClient(yunClient);
 
 /****************************** Feeds / Publishers ***************************************/
 // Setup a feed called 'LightSensor' for publishing.
@@ -36,7 +36,7 @@ const int mqttPort = 1883;
 const char* mqttClientID = "vap0rtranz";
 const char* mqttUsername = "vap0rtranz";
 const char* mqttPassword = "d31936d303a14e3b8ed2dadbd7e308fe";
-const int samplePeriod = 10000; //1min samples
+const int samplePeriod = 5000; //5sec samples
 const byte sampleBuffer = 10;
 
 // Pins and such
@@ -90,7 +90,8 @@ void setup() {
   }
   //make MQTT Server connection/reconnection; see fx below
   //mqttClient.setCallback(callback);
-  mqttReconnect();
+  mqttClient.setServer("io.adafruit.com", 1883); 
+//  mqttClient.setCallback(callback);
    
   // Initialize DHT sensor.
   dht.begin();
@@ -112,20 +113,19 @@ void loop() {
 void mqttReconnect() {
     DPRINT("state of MQTT client is: ");
     DPRINTLN(mqttClient.state());
-    if (! mqttClient.state() == 0) {
-        DPRINTLN("WARN: not connected to MQTT broker.");
-    }
+    DPRINT("connected return value is: ");
+    DPRINTLN(mqttClient.connected());
     DPRINT("Attempting MQTT connection...");
     // Attempt to connect
-    if (mqttClient.connect("test")) {
-    //if (mqttClient.connect("vap0rtranz", "vap0rtranz", "d31936d303a14e3b8ed2dadbd7e308fe")) {
+    if (mqttClient.connect("vap0rtranz", "vap0rtranz", "d31936d303a14e3b8ed2dadbd7e308fe")) {
       digitalWrite(LED_BUILTIN, LOW);  // visually indicate problem with MQTT connection
-      DPRINT("supposedly we're connected? state of client is: ");
+      DPRINT("connection attempted. state of client is: ");
       DPRINTLN(mqttClient.state());
     } else {
       digitalWrite(LED_BUILTIN, HIGH);  // visually indicate problem with MQTT connection
       DPRINT("ERROR: connection failed, state of client is: ");
       DPRINTLN(mqttClient.state());
+      delay(5000);
     }
 }
 
@@ -196,28 +196,31 @@ void writeSensorToFile() {
 
 void publishSensorToBroker() {
   // publish sensor data
-  if (mqttClient.state() != 0) {
+  if (!mqttClient.connected()) {
+    DPRINTLN("Evidently we aren't connected to MQTT broker!");
     mqttReconnect();
   }
   pubString = String(sensor[0]);
   pubString.toCharArray(message_buff, pubString.length()+1);
-  mqttClient.publish("vap0rtranz/feeds/Temperature", message_buff);
+  if (!mqttClient.publish("vap0rtranz/feeds/Temperature","30")) {
+    DPRINTLN("FAILED: celcius temp publish");
+  }
   delay(1000);
   pubString = String(sensor[1]);
   pubString.toCharArray(message_buff, pubString.length()+1);
-  mqttClient.publish("vap0rtranz/feeds/LightSensor", message_buff);
+  mqttClient.publish("vap0rtranz/feeds/LightSensor", "1000");
   delay(1000);
   pubString = String(sensor[2]);
   pubString.toCharArray(message_buff, pubString.length()+1);
-  mqttClient.publish("vap0rtranz/feeds/SoilMoisture", message_buff);
+  mqttClient.publish("vap0rtranz/feeds/SoilMoisture", "900");
   delay(1000);
   pubString = String(fahrenheit);
   pubString.toCharArray(message_buff, pubString.length()+1);
-  mqttClient.publish("vap0rtranz/feeds/Fahrenheit", message_buff);
+  mqttClient.publish("vap0rtranz/feeds/Fahrenheit", "90");
   delay(1000);
   pubString = String(humidity);
   pubString.toCharArray(message_buff, pubString.length()+1);
-  mqttClient.publish("vap0rtranz/feeds/Humidity", message_buff);
+  mqttClient.publish("vap0rtranz/feeds/Humidity", "50");
   /*
   if (ret > 0) 
   { 
@@ -233,6 +236,7 @@ void publishSensorToBroker() {
 }
 
 // callback the payload from MQTT connection
+/*
 void callback(char* topic, byte* payload, unsigned int length) {
   DPRINT("Message arrived [");
   DPRINT(topic);
@@ -242,4 +246,5 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
   DPRINTLN();
 }
+*/
 
